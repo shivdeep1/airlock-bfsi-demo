@@ -15,6 +15,11 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .core import POLICY, Runtime, verify_bundle
+from .sessions import RateLimiter, SessionExhaustedError, SessionManager
+
+#: Name of the per-visitor cookie in public mode.
+COOKIE = "airlock_demo_session"
+LOCAL_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
 
 class ExecuteRequest(BaseModel):
@@ -24,14 +29,30 @@ class ExecuteRequest(BaseModel):
     arguments: dict[str, Any]
 
 
-def create_app(runtime: Runtime | None = None) -> FastAPI:
-    owned = runtime is None
-    rt = runtime or Runtime(Path(os.environ.get("AIRLOCK_DEMO_DATA", "data/submission")))
+def create_app(
+    runtime: Runtime | None = None,
+    *,
+    sessions: SessionManager | None = None,
+    allowed_hosts: list[str] | None = None,
+    secure_cookie: bool = True,
+) -> FastAPI:
+    """Build the demo app.
+
+    Two modes. Pass ``runtime`` for the original single-operator demo: one
+    process, one operator bearer token, loopback only. Pass ``sessions`` for the
+    public demo: every visitor gets an isolated Runtime behind a cookie, and the
+    shared operator token does not exist.
+    """
+    public = sessions is not None
+    owned = runtime is None and not public
+    rt = runtime or (
+        None if public else Runtime(Path(os.environ.get("AIRLOCK_DEMO_DATA", "data/submission")))
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        if owned:
+        if owned and rt is not None:
             rt.close()
 
     app = FastAPI(
@@ -42,15 +63,28 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         openapi_url=None,
     )
     app.state.runtime = rt
-    app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]
-    )
+    app.state.sessions = sessions
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or LOCAL_HOSTS)
+
+    # Session creation is the expensive call; ordinary API traffic is cheap.
+    new_session_limit = RateLimiter(limit=10, window=600)
+    api_limit = RateLimiter(limit=180, window=60)
+
+    def caller(request: Request) -> str:
+        # Behind the Cloudflare Tunnel the edge sets CF-Connecting-IP and the
+        # origin is not otherwise reachable, so it is the only useful key. On a
+        # directly exposed origin this header would be attacker-controlled.
+        if public and (edge := request.headers.get("cf-connecting-ip")):
+            return edge
+        return request.client.host if request.client else "unknown"
 
     @app.middleware("http")
-    async def local_only(request: Request, call_next: RequestResponseEndpoint) -> Response:
+    async def guard(request: Request, call_next: RequestResponseEndpoint) -> Response:
         origin = request.headers.get("origin")
         if origin and origin != f"{request.url.scheme}://{request.headers.get('host')}":
             return JSONResponse({"detail": "Cross-origin requests are disabled"}, status_code=403)
+        if public and request.url.path.startswith("/api/") and not api_limit.allow(caller(request)):
+            return JSONResponse({"detail": "Rate limit exceeded. Slow down."}, status_code=429)
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -66,11 +100,28 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             raise HTTPException(401, "Bearer credential required")
         return header[7:]
 
-    def operator(header: str) -> str:
-        value = token(header)
-        if not rt.is_operator(value):
+    def workspace(request: Request, header: str) -> Runtime:
+        """The caller's Runtime, having proved they own it.
+
+        Public mode: ownership is the session cookie. Single-operator mode: the
+        operator bearer token, exactly as before.
+        """
+        if public:
+            assert sessions is not None
+            session = sessions.get(request.cookies.get(COOKIE))
+            if session is None:
+                raise HTTPException(401, "No active demo session. Reload to start one.")
+            return session.runtime
+        assert rt is not None
+        if not rt.is_operator(token(header)):
             raise HTTPException(403, "Demo operator credential required")
-        return value
+        return rt
+
+    @app.exception_handler(SessionExhaustedError)
+    async def exhausted(_: Request, __: Exception) -> JSONResponse:
+        return JSONResponse(
+            {"detail": "The demo is at capacity right now. Try again shortly."}, status_code=503
+        )
 
     @app.exception_handler(PermissionError)
     async def permission_error(_: Request, __: Exception) -> JSONResponse:
@@ -90,6 +141,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     def index() -> str:
         return Path(__file__).with_name("index.html").read_text(encoding="utf-8")
 
+    @app.get("/healthz")
+    def healthz() -> dict[str, Any]:
+        if public:
+            assert sessions is not None
+            return {"status": "ok", "mode": "public", **sessions.stats()}
+        return {"status": "ok", "mode": "single-operator"}
+
     @app.get("/assets/{name}")
     def asset(name: str) -> Response:
         if name == "logo.jpeg":
@@ -99,14 +157,42 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         mime = "text/javascript" if name.endswith(".js") else "text/css"
         return Response(Path(__file__).with_name(name).read_text(encoding="utf-8"), media_type=mime)
 
+    @app.post("/api/session")
+    def open_session(request: Request) -> JSONResponse:
+        """Start an isolated visitor workspace. Public mode only."""
+        if not public:
+            raise HTTPException(404)
+        assert sessions is not None
+        if not new_session_limit.allow(caller(request)):
+            raise HTTPException(429, "Too many demo sessions from this address.")
+        session = sessions.create()
+        body = JSONResponse(
+            {
+                "run_id": session.runtime.run_id,
+                "agent_token": session.runtime.agent_token,
+                "expires_in": int(sessions.idle_ttl),
+                "isolated": True,
+            }
+        )
+        body.set_cookie(
+            COOKIE,
+            session.id,
+            httponly=True,
+            samesite="strict",
+            secure=secure_cookie,
+            max_age=max(1, int(sessions.absolute_ttl)),  # never round a short TTL down to 0
+            path="/",
+        )
+        return body
+
     @app.get("/api/state")
-    def state(authorization: str = Header(default="")) -> dict[str, Any]:
-        operator(authorization)
-        bundle = rt.evidence()
+    def state(request: Request, authorization: str = Header(default="")) -> dict[str, Any]:
+        ws = workspace(request, authorization)
+        bundle = ws.evidence()
         return {
-            "run_id": rt.run_id,
-            "task": asdict(rt.tasks[rt.latest_task]) if rt.latest_task else None,
-            "analyst_entitlements": sorted(rt.entitlements[("demo-bank", "analyst-01")]),
+            "run_id": ws.run_id,
+            "task": asdict(ws.tasks[ws.latest_task]) if ws.latest_task else None,
+            "analyst_entitlements": sorted(ws.entitlements[("demo-bank", "analyst-01")]),
             "policy": POLICY,
             "events": bundle["payload"]["events"],
             "backend_reads": bundle["payload"]["backend_reads"],
@@ -115,26 +201,43 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         }
 
     @app.post("/api/tasks")
-    def assign(authorization: str = Header(default="")) -> dict[str, Any]:
-        return asdict(rt.assign(operator(authorization)))
+    def assign(request: Request, authorization: str = Header(default="")) -> dict[str, Any]:
+        ws = workspace(request, authorization)
+        return asdict(ws.assign(ws.operator_token))
 
     @app.post("/api/tasks/{task_ref}/revoke")
-    def revoke(task_ref: str, authorization: str = Header(default="")) -> dict[str, Any]:
-        credential = operator(authorization)
-        if task_ref not in rt.tasks:
+    def revoke(
+        task_ref: str, request: Request, authorization: str = Header(default="")
+    ) -> dict[str, Any]:
+        ws = workspace(request, authorization)
+        if task_ref not in ws.tasks:
             raise HTTPException(404, "Unknown task")
-        return asdict(rt.revoke(credential, task_ref))
+        return asdict(ws.revoke(ws.operator_token, task_ref))
 
     @app.post("/api/execute")
-    def execute(body: ExecuteRequest, authorization: str = Header(default="")) -> JSONResponse:
-        result = rt.execute(token(authorization), body.task_ref, body.tool, body.arguments)
+    def execute(
+        body: ExecuteRequest, request: Request, authorization: str = Header(default="")
+    ) -> JSONResponse:
+        """Agent-credential path. The credential must belong to the caller's own workspace."""
+        if public:
+            assert sessions is not None
+            session = sessions.get(request.cookies.get(COOKIE))
+            if session is None:
+                raise HTTPException(401, "No active demo session. Reload to start one.")
+            ws = session.runtime
+        else:
+            assert rt is not None
+            ws = rt
+        result = ws.execute(token(authorization), body.task_ref, body.tool, body.arguments)
         return JSONResponse(result, status_code=200 if result["decision"] == "ALLOW" else 403)
 
     @app.post("/api/demo/{action}")
-    def demo(action: str, authorization: str = Header(default="")) -> dict[str, Any]:
+    def demo(
+        action: str, request: Request, authorization: str = Header(default="")
+    ) -> dict[str, Any]:
         # Privileged operator harness, not an agent-accessible identity switch.
-        operator(authorization)
-        if rt.latest_task is None:
+        ws = workspace(request, authorization)
+        if ws.latest_task is None:
             raise HTTPException(409, "Create an assignment first")
         actions = {
             "read": ("read_documents", {"borrower": "A"}),
@@ -144,7 +247,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if action not in actions:
             raise HTTPException(404)
         tool, arguments = actions[action]
-        result = rt.execute(rt.agent_token, rt.latest_task, tool, arguments)
+        result = ws.execute(ws.agent_token, ws.latest_task, tool, arguments)
         if result["execution"] == "completed":
             document = result["document"]
             result["draft"] = {
@@ -161,10 +264,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         return result
 
     @app.get("/api/evidence")
-    def evidence(authorization: str = Header(default="")) -> JSONResponse:
-        operator(authorization)
+    def evidence(request: Request, authorization: str = Header(default="")) -> JSONResponse:
+        ws = workspace(request, authorization)
         return JSONResponse(
-            rt.evidence(),
+            ws.evidence(),
             headers={"Content-Disposition": 'attachment; filename="airlock-evidence.json"'},
         )
 

@@ -103,12 +103,34 @@ class EvidenceStore:
             with self.db:
                 self.db.execute("INSERT INTO events(body) VALUES (?)", (canonical(event).decode(),))
 
-    def events(self) -> list[dict[str, Any]]:
+    def events(self, run_id: str | None = None) -> list[dict[str, Any]]:
+        """All events, or only one run's. Filtering in SQL keeps a shared store cheap."""
         with self.lock:
-            return [
-                json.loads(row[0])
-                for row in self.db.execute("SELECT body FROM events ORDER BY seq")
-            ]
+            if run_id is None:
+                rows = self.db.execute("SELECT body FROM events ORDER BY seq")
+            else:
+                rows = self.db.execute(
+                    "SELECT body FROM events WHERE json_extract(body,'$.run_id')=? ORDER BY seq",
+                    (run_id,),
+                )
+            return [json.loads(row[0]) for row in rows]
+
+    def count(self) -> int:
+        with self.lock:
+            return int(self.db.execute("SELECT COUNT(*) FROM events").fetchone()[0])
+
+    def drop_runs(self, run_ids: set[str]) -> int:
+        """Delete every event belonging to the given runs. Used to reclaim expired sessions."""
+        if not run_ids:
+            return 0
+        with self.lock:
+            with self.db:
+                placeholders = ",".join("?" * len(run_ids))
+                cur = self.db.execute(
+                    f"DELETE FROM events WHERE json_extract(body,'$.run_id') IN ({placeholders})",
+                    tuple(run_ids),
+                )
+            return int(cur.rowcount or 0)
 
     def close(self) -> None:
         self.db.close()
@@ -149,6 +171,7 @@ class MockBank:
                             "tenant": key[0],
                             "borrower": key[1],
                             "correlation_id": self.headers.get("X-Correlation-ID"),
+                            "scope": self.headers.get("X-Demo-Scope"),
                             "timestamp": time.time(),
                         }
                     )
@@ -164,21 +187,34 @@ class MockBank:
         self.thread.start()
         self.url = f"http://127.0.0.1:{self.server.server_port}"
 
-    def read(self, tenant: str, borrower: str, correlation: str) -> dict[str, Any]:
+    def read(
+        self, tenant: str, borrower: str, correlation: str, scope: str | None = None
+    ) -> dict[str, Any]:
         with httpx.Client(timeout=3, trust_env=False) as client:
             response = client.get(
                 f"{self.url}/documents/{tenant}/{borrower}",
                 headers={
                     "Authorization": "Bearer " + self.credential,
                     "X-Correlation-ID": correlation,
+                    **({"X-Demo-Scope": scope} if scope else {}),
                 },
             )
             response.raise_for_status()
             return cast(dict[str, Any], response.json())
 
-    def ledger(self) -> list[dict[str, Any]]:
+    def ledger(self, scope: str | None = None) -> list[dict[str, Any]]:
+        """Reads for one run. Without a scope this is the whole ledger (single-operator mode)."""
         with self.lock:
-            return list(self.reads)
+            if scope is None:
+                return list(self.reads)
+            return [r for r in self.reads if r.get("scope") == scope]
+
+    def prune(self, scopes: set[str]) -> None:
+        """Drop ledger rows whose owning run has expired. Bounds memory growth."""
+        with self.lock:
+            self.reads = [
+                r for r in self.reads if r.get("scope") in scopes or r.get("scope") is None
+            ]
 
     def close(self) -> None:
         self.server.shutdown()
@@ -206,14 +242,34 @@ class Task:
 
 
 class Runtime:
-    def __init__(self, data_dir: Path):
+    """One reviewer workspace.
+
+    In single-operator mode it owns its evidence store and mock bank. In the
+    public demo one store and one bank are shared across every visitor session
+    and injected here, so a Runtime is only the per-visitor state: run id,
+    signing key, credentials, assignments. Everything a visitor can read back
+    is filtered by ``run_id``, which is what keeps sessions apart.
+    """
+
+    def __init__(
+        self,
+        data_dir: Path | None = None,
+        *,
+        store: EvidenceStore | None = None,
+        bank: MockBank | None = None,
+    ):
+        if store is None and data_dir is None:
+            raise ValueError("Runtime needs either data_dir or an injected store")
         self.lock = threading.RLock()
         self.run_id = str(uuid.uuid4())
-        self.store = EvidenceStore(data_dir / "evidence.sqlite3")
+        self.owns_store = store is None
+        self.owns_bank = bank is None
+        assert data_dir is not None or store is not None
+        self.store = store or EvidenceStore(cast(Path, data_dir) / "evidence.sqlite3")
         self.key = (
             SigningKey.generate()
         )  # Per-run key; exported public key is not an external trust anchor.
-        self.bank = MockBank()
+        self.bank = bank or MockBank()
         self.operator_token = secrets.token_urlsafe(32)
         self.agent_token = secrets.token_urlsafe(32)
         self.other_agent_token = secrets.token_urlsafe(32)
@@ -346,7 +402,7 @@ class Runtime:
             assert task is not None  # Only a verified existing assignment can reach dispatch.
             self.event("dispatch_intent", correlation_id=correlation)
             try:
-                payload = self.bank.read(identity.tenant, task.borrower, correlation)
+                payload = self.bank.read(identity.tenant, task.borrower, correlation, self.run_id)
             except Exception:
                 self.event(
                     "outcome",
@@ -371,14 +427,14 @@ class Runtime:
 
     def evidence(self) -> dict[str, Any]:
         with self.lock:
-            events = [e for e in self.store.events() if e["run_id"] == self.run_id]
+            events = self.store.events(self.run_id)
             payload = {
                 "schema": "airlock-submission-evidence-v1",
                 "run_id": self.run_id,
                 "synthetic": True,
                 "policy": POLICY,
                 "events": events,
-                "backend_reads": self.bank.ledger(),
+                "backend_reads": self.bank.ledger(self.run_id),
                 "limitations": "Local demo; backend ledger is in memory. Embedded key is not an independent trust anchor. Signature proves snapshot integrity, not completeness or compliance.",
             }
             return {
@@ -388,8 +444,10 @@ class Runtime:
             }
 
     def close(self) -> None:
-        self.bank.close()
-        self.store.close()
+        if self.owns_bank:
+            self.bank.close()
+        if self.owns_store:
+            self.store.close()
 
 
 def verify_bundle(bundle: dict[str, Any], expected_public_key: str | None = None) -> bool:

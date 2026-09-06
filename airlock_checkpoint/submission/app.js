@@ -1,8 +1,15 @@
 'use strict';
 const $ = id => document.getElementById(id);
+// Single-operator mode passes a token in the launch link. The public demo has
+// no shared token: the server issues a per-visitor session cookie instead.
 let credential = new URLSearchParams(location.hash.slice(1)).get('token') || sessionStorage.getItem('airlock-demo-token') || '';
 if (credential) sessionStorage.setItem('airlock-demo-token', credential);
 history.replaceState(null, '', location.pathname);
+async function openSession(){
+ const response=await fetch('/api/session',{method:'POST',credentials:'same-origin'});
+ if(!response.ok){let msg='Could not start a demo session.';try{msg=(await response.json()).detail||msg;}catch{}throw new Error(msg);}
+ return response.json();
+}
 let state = null, busy = false, step = 0;
 const steps = [
  ['01 / GIVE PERMISSION','Start with one file.','Let the AI read borrower A\'s documents for this job.','Let AI read borrower A','Permission lasts 15 minutes. You can stop it sooner.'],
@@ -15,8 +22,18 @@ const steps = [
 const reasons = {permitted:'This file is part of the approved job',outside_task_scope:'Borrower B is not part of this job',tool_not_permitted:'This job does not allow uploads',task_revoked:'You stopped access',task_expired:'Permission has expired',identity_or_tenant_mismatch:'Identity or bank does not match',invalid_arguments:'The request does not match the allowed tool',policy_unavailable:'Policy unavailable; request blocked',user_entitlement_removed:'The analyst no longer has access'};
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function notice(text,error=false){$('connection').hidden=!text;$('connection').textContent=text;$('connection').className='notice'+(error?' error':'');}
-async function request(path,method='GET'){
- const response=await fetch(path,{method,headers:{Authorization:'Bearer '+credential}});
+async function send(path,method){
+ const headers=credential?{Authorization:'Bearer '+credential}:{};
+ return fetch(path,{method,headers,credentials:'same-origin'});
+}
+async function request(path,method='GET',retry=true){
+ let response=await send(path,method);
+ // A restarted server drops in-memory sessions. Start a fresh one and retry
+ // once, rather than stranding the visitor on a dead cookie.
+ if(response.status===401&&!credential&&retry){
+  try{await openSession();}catch(e){throw e;}
+  response=await send(path,method);
+ }
  if(!response.ok){let msg='Request failed. Please try again.';try{msg=(await response.json()).detail||msg;}catch{}throw new Error(msg);}
  return response.json();
 }
@@ -95,4 +112,13 @@ for(const id of ['read','cross-case','upload'])$(id).addEventListener('click',()
 $('revoke').addEventListener('click',()=>action(async()=>{await request('/api/tasks/'+encodeURIComponent(state.task.id)+'/revoke','POST');result('AI access stopped.','Future reads will be checked against the removed permission.');}));
 $('download').addEventListener('click',()=>action(async()=>{const bundle=await request('/api/evidence');const url=URL.createObjectURL(new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download='airlock-evidence.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}));
 renderStep();
-refresh().then(()=>notice('')).catch(()=>{notice('Open the private launch link from the demo server to connect. A restarted server needs a new link.',true);controls();});
+(async()=>{
+ try{
+  if(!credential)await openSession();
+  await refresh();
+  notice('');
+ }catch(err){
+  notice(credential?'Open the private launch link from the demo server to connect. A restarted server needs a new link.':(err.message||'Could not start a demo session. Reload to try again.'),true);
+  controls();
+ }
+})();
