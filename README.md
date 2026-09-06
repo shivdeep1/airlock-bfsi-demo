@@ -47,6 +47,14 @@ uv run --frozen --no-sync ruff check airlock_checkpoint/submission tests/test_su
 uv run --frozen --no-sync python -m airlock_checkpoint.submission --verify demo/sample-evidence.json
 ```
 
+## Banking use case and deployment
+
+The site's **For bank teams** section explains the proposed deployment boundary, a first pilot and what these controls do not cover. The walkthrough includes illustrative impersonation and document-injection messages. Those messages are explanatory text, not inputs to a model. The buttons submit the unauthorized tool requests that such an attack could cause. This tests enforcement, not live-model attack resistance.
+
+The intended starting point is one document workflow behind an existing bank assistant, not a new customer-facing portal. Bank identity, case permissions, isolated execution, model and network destinations, secure key custody and independent review remain integration work. Local execution is not evidence of enterprise on-premise readiness.
+
+See [OWASP's prompt-injection guidance](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) for the threat background. Least-privilege checks are one part of a broader security design, not a promise that every AI action is safe.
+
 ## Scope and limitations
 
 The agent requests are scripted and document extraction is deterministic. No live LLM, bank connection, customer data, loan decision, customer pilot or regulatory certification is claimed.

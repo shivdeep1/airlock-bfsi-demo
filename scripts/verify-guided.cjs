@@ -24,6 +24,11 @@ const { chromium } = require(process.env.AIRLOCK_PLAYWRIGHT_MODULE || 'playwrigh
   await page.getByRole('button',{name:label,exact:false}).first().click();
   await page.locator('#result').getByText(result,{exact:true}).waitFor();
   await page.waitForFunction(()=>!document.querySelector('#next').disabled);
+  if(label==='Let AI read borrower A'){
+   assert.match(await page.locator('#stepDescription').textContent(),/supervisor/);
+   assert.match(await page.locator('#actionNote').textContent(),/no live model/);
+   await page.screenshot({path:path.join(out,'02-attack-scenario.png'),fullPage:true});
+  }
  }
  assert.equal(await page.locator('#progressLabel').textContent(),'Complete');
  assert.equal(await page.locator('#allowedCount').textContent(),'1');
@@ -45,6 +50,16 @@ const { chromium } = require(process.env.AIRLOCK_PLAYWRIGHT_MODULE || 'playwrigh
  await page.setViewportSize({width:390,height:844});
  await page.screenshot({path:path.join(out,'04-mobile.png'),fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ const bankQuestions=page.locator('.bank-questions > details');
+ assert.equal(await bankQuestions.count(),5);
+ for(let i=0;i<5;i++){
+  await bankQuestions.nth(i).locator('summary').click();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ }
+ assert.match(await page.locator('#bankTeams').textContent(),/not an installed bank integration/);
+ await page.screenshot({path:path.join(out,'05-bank-details-mobile.png'),fullPage:true});
+ await page.setViewportSize({width:1440,height:1000});
+ await page.screenshot({path:path.join(out,'06-bank-details-desktop.png'),fullPage:true});
  // Reload starts a new guided run, but never removes evidence.
  await page.reload();
  await page.waitForFunction(()=>!document.querySelector('#next').disabled);
@@ -60,4 +75,3 @@ const { chromium } = require(process.env.AIRLOCK_PLAYWRIGHT_MODULE || 'playwrigh
  console.log('PASS: guided flow, real read, 3 denials, evidence download, restart, mobile, unauthenticated state; no JS errors.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});
-
