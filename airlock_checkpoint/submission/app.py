@@ -92,6 +92,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.get("/assets/{name}")
     def asset(name: str) -> Response:
+        if name == "logo.jpeg":
+            return Response(Path(__file__).with_name(name).read_bytes(), media_type="image/jpeg")
         if name not in {"app.js", "style.css"}:
             raise HTTPException(404)
         mime = "text/javascript" if name.endswith(".js") else "text/css"

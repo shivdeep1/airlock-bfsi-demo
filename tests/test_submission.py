@@ -30,6 +30,15 @@ def auth(value):
     return {"Authorization": "Bearer " + value}
 
 
+def test_brand_logo_is_served_without_opening_other_files(client):
+    response = client.get("/assets/logo.jpeg")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.content.startswith(b"\xff\xd8\xff")
+    assert client.get("/assets/core.py").status_code == 404
+    assert 'alt="" width="48" height="48">Airlock' in client.get("/").text
+
+
 def assigned(rt):
     return rt.assign(rt.operator_token).id
 
