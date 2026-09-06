@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "browser": "Microsoft Edge via Playwright",
+  "desktop": "1440x1100",
+  "mobile": "390x844",
+  "completed_reads": 1,
+  "denied_requests": 3,
+  "out_of_scope_reads": 0,
+  "rendered_request_rows": 4,
+  "evidence_download": true,
+  "javascript_errors": [],
+  "timestamp": "2026-09-06T03:20:57.172Z"
+}

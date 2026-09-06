@@ -1,0 +1,161 @@
+{
+  "payload": {
+    "schema": "airlock-submission-evidence-v1",
+    "run_id": "570e8c43-52f7-4d22-8289-9213a2a4db70",
+    "synthetic": true,
+    "policy": {
+      "id": "submission-task-access-v1",
+      "rules": [
+        "authenticated agent",
+        "same tenant and assigned agent",
+        "active unexpired assignment",
+        "current analyst entitlement",
+        "read_documents for assigned borrower only",
+        "all other tools denied"
+      ]
+    },
+    "events": [
+      {
+        "kind": "assignment",
+        "policy": {
+          "id": "submission-task-access-v1",
+          "rules": [
+            "authenticated agent",
+            "same tenant and assigned agent",
+            "active unexpired assignment",
+            "current analyst entitlement",
+            "read_documents for assigned borrower only",
+            "all other tools denied"
+          ]
+        },
+        "policy_hash": "ec44f101f835908e3a04ed651fb0f004037ca56c735ff500b72d5128b2a7ee4a",
+        "run_id": "570e8c43-52f7-4d22-8289-9213a2a4db70",
+        "task": {
+          "agent": "review-agent",
+          "borrower": "A",
+          "expires_at": 1788665755.4559047,
+          "id": "c352ba7c-e5ee-4229-86a2-66d065797227",
+          "status": "active",
+          "tenant": "demo-bank",
+          "user": "analyst-01",
+          "version": 1
+        },
+        "timestamp": 1788664855.4569063
+      },
+      {
+        "arguments_digest": "96286166e6eb4cb3d694cf498151c8bfb787d80652e121af3832bba370a4d51c",
+        "correlation_id": "ad827c4e-e299-4d21-b87d-9df67c8b37e7",
+        "decision": "ALLOW",
+        "identity": {
+          "agent": "review-agent",
+          "tenant": "demo-bank",
+          "user": "analyst-01"
+        },
+        "kind": "decision",
+        "policy_hash": "ec44f101f835908e3a04ed651fb0f004037ca56c735ff500b72d5128b2a7ee4a",
+        "policy_id": "submission-task-access-v1",
+        "reason": "permitted",
+        "resource": "A",
+        "run_id": "570e8c43-52f7-4d22-8289-9213a2a4db70",
+        "task_id": "c352ba7c-e5ee-4229-86a2-66d065797227",
+        "task_version": 1,
+        "timestamp": 1788664855.517302,
+        "tool": "read_documents"
+      },
+      {
+        "correlation_id": "ad827c4e-e299-4d21-b87d-9df67c8b37e7",
+        "kind": "dispatch_intent",
+        "run_id": "570e8c43-52f7-4d22-8289-9213a2a4db70",
+        "timestamp": 1788664855.5210137
+      },
+      {
+        "backend_request_id": "f215e76a-b4e3-4f7b-adda-10e698cd2020",
+        "correlation_id": "ad827c4e-e299-4d21-b87d-9df67c8b37e7",
+        "execution": "completed",
+        "kind": "outcome",
+        "result_digest": "b7756c70b2704364114e1501b3e9fcadce73384ea77afeeded83a8cac8b6d490",
+        "run_id": "570e8c43-52f7-4d22-8289-9213a2a4db70",
+        "timestamp": 1788664855.9185169
+      },
+      {
+        "arguments_digest": "27c671ac6588c9060df46d3450e16cf392de37c50188bd9fac46632fcbe3f80a",
+        "correlation_id": "9b586f78-581e-4eac-b3b3-1d8460a43acf",
+        "decision": "DENY",
+        "identity": {
+          "agent": "review-agent",
+          "tenant": "demo-bank",
+          "user": "analyst-01"
+        },
+        "kind": "decision",
+        "policy_hash": "ec44f101f835908e3a04ed651fb0f004037ca56c735ff500b72d5128b2a7ee4a",
+        "policy_id": "submission-task-access-v1",
+        "reason": "outside_task_scope",
+        "resource": "B",
+        "run_id": "570e8c43-52f7-4d22-8289-9213a2a4db70",
+        "task_id": "c352ba7c-e5ee-4229-86a2-66d065797227",
+        "task_version": 1,
+        "timestamp": 1788664856.4454155,
+        "tool": "read_documents"
+      },
+      {
+        "arguments_digest": "b28b924b3a2be068edf40be8342891b6c7f6ed98ac3439cc6250f18679d06722",
+        "correlation_id": "8ff65280-cfe9-4943-af2a-2ddbeb1ebf51",
+        "decision": "DENY",
+        "identity": {
+          "agent": "review-agent",
+          "tenant": "demo-bank",
+          "user": "analyst-01"
+        },
+        "kind": "decision",
+        "policy_hash": "ec44f101f835908e3a04ed651fb0f004037ca56c735ff500b72d5128b2a7ee4a",
+        "policy_id": "submission-task-access-v1",
+        "reason": "tool_not_permitted",
+        "resource": null,
+        "run_id": "570e8c43-52f7-4d22-8289-9213a2a4db70",
+        "task_id": "c352ba7c-e5ee-4229-86a2-66d065797227",
+        "task_version": 1,
+        "timestamp": 1788664856.4819796,
+        "tool": "external_upload"
+      },
+      {
+        "kind": "revocation",
+        "new_version": 2,
+        "run_id": "570e8c43-52f7-4d22-8289-9213a2a4db70",
+        "task_id": "c352ba7c-e5ee-4229-86a2-66d065797227",
+        "timestamp": 1788664856.5416827
+      },
+      {
+        "arguments_digest": "96286166e6eb4cb3d694cf498151c8bfb787d80652e121af3832bba370a4d51c",
+        "correlation_id": "3328e777-a834-4309-854c-04fd577aace8",
+        "decision": "DENY",
+        "identity": {
+          "agent": "review-agent",
+          "tenant": "demo-bank",
+          "user": "analyst-01"
+        },
+        "kind": "decision",
+        "policy_hash": "ec44f101f835908e3a04ed651fb0f004037ca56c735ff500b72d5128b2a7ee4a",
+        "policy_id": "submission-task-access-v1",
+        "reason": "task_revoked",
+        "resource": "A",
+        "run_id": "570e8c43-52f7-4d22-8289-9213a2a4db70",
+        "task_id": "c352ba7c-e5ee-4229-86a2-66d065797227",
+        "task_version": 2,
+        "timestamp": 1788664856.5939274,
+        "tool": "read_documents"
+      }
+    ],
+    "backend_reads": [
+      {
+        "backend_request_id": "f215e76a-b4e3-4f7b-adda-10e698cd2020",
+        "tenant": "demo-bank",
+        "borrower": "A",
+        "correlation_id": "ad827c4e-e299-4d21-b87d-9df67c8b37e7",
+        "timestamp": 1788664855.9185169
+      }
+    ],
+    "limitations": "Local demo; backend ledger is in memory. Embedded key is not an independent trust anchor. Signature proves snapshot integrity, not completeness or compliance."
+  },
+  "public_key": "c78f8ae4876f5d9069ce6cac4e94a119fd6524a1031ddc59f7bad1deb83c2967",
+  "signature": "277af4bdae2e75c8220bb48b9a604883d1aef6c53c2113f18d533cd8de1931f14431c4813fbb875839d75f7f6595f5a5e2dc7807ade05484d107cc4136713802"
+}
