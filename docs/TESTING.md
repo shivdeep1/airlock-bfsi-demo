@@ -6,16 +6,16 @@ The application runs on your own computer. A localhost link from someone else's 
 
 | Action | Policy result | Backend result |
 |---|---|---|
-| Create assignment, then read A | ALLOW | One actual synthetic HTTP document read |
+| Let AI read borrower A | ALLOW | Permission created, then one actual synthetic HTTP document read |
 | Attempt B | DENY | Not dispatched |
 | Attempt external upload | DENY | Not dispatched |
-| Revoke assignment, then read A | DENY | Not dispatched |
+| Stop AI access, then try borrower A again | DENY | Not dispatched |
 
 The document output is deterministic extraction, not a live LLM summary. The attack buttons submit reproducible prohibited tool requests. They do not claim that a live model independently chose those actions.
 
 ## Evidence
 
-Open the backend ledger under the table. It should show only the permitted A read for a clean run. Download the evidence and use the verification command in the README. Edited snapshot contents should fail signature verification. Public keys embedded in a file are not independent trust anchors.
+Open Technical details & request history, then Backend receipts & trust limits. It should show only the permitted A read for a clean run. Download the evidence and use the verification command in the README. Edited snapshot contents should fail signature verification. Public keys embedded in a file are not independent trust anchors.
 
 ## How it works
 

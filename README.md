@@ -10,23 +10,30 @@ An analyst may access two borrowers. An agent assigned borrower A should not inh
 
 ## Run locally
 
-Install Python 3.12 and `uv`, then run these commands in this repository:
+On another computer, install Git, Python 3.12 and `uv`, then run:
 
 ```powershell
+git clone https://github.com/shivdeep1/airlock-bfsi-demo.git
+cd airlock-bfsi-demo
 uv sync --frozen --extra dev
 uv run --frozen --no-sync python -m airlock_checkpoint.submission
 ```
+
+If you already cloned this repository, run `git pull --ff-only` inside it before the two `uv` commands. GitHub hosts the source code, not a running application. Each computer starts its own local demo and gets its own private launch URL.
 
 First setup downloads dependencies. No API key or real customer data is required. Open the private launch URL printed by the server. It binds to `127.0.0.1:8801` only. If that port is in use, append `--port 8802` to the Python command. Keep the temporary launch credential private. Stop with Ctrl+C.
 
 ## What to try
 
-1. Create an assignment for borrower A.
-2. Read A. The request reaches a separately credentialed HTTP mock backend.
-3. Attempt B. The request is denied before dispatch.
-4. Attempt an external upload. The unsupported operation is denied.
-5. Revoke the assignment, then read A again. The request is denied.
-6. Inspect and download the signed evidence.
+Follow the main button through the five-step walkthrough:
+
+1. **Let AI read borrower A.** Creates permission and reads the permitted documents.
+2. **Try borrower B.** The other borrower's documents are blocked.
+3. **Try an external upload.** The upload is blocked.
+4. **Stop AI access.** Removes permission.
+5. **Try borrower A again.** The previously allowed read is now blocked.
+
+Open **Technical details & request history** for document output, backend receipts, extra test controls and the signed evidence download. The existing video shows the earlier interface; the execution controls are unchanged.
 
 A clean run produces one completed backend read and three denials. New assignments do not clear the current run's evidence. Restart for fresh counters.
 
