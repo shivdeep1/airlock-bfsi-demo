@@ -329,3 +329,27 @@ def test_full_five_step_flow_in_public_mode(app):
     bundle = client.get("/api/evidence").json()
     assert bundle["payload"]["synthetic"] is True
     assert client.get("/api/state").json()["signature_valid"] is True
+
+
+# -- transport -------------------------------------------------------------
+
+
+def test_plain_http_is_redirected_so_the_secure_cookie_survives(app):
+    """A Secure cookie is dropped over http, which 401s every later call."""
+    client = tc(app)
+    r = client.post("/api/session", headers={"X-Forwarded-Proto": "http"}, follow_redirects=False)
+    assert r.status_code == 308
+    assert r.headers["location"].startswith("https://")
+
+
+def test_https_requests_are_not_redirected(app):
+    client = tc(app)
+    r = client.post("/api/session", headers={"X-Forwarded-Proto": "https"}, follow_redirects=False)
+    assert r.status_code == 200
+
+
+def test_local_insecure_cookie_mode_is_never_redirected(manager):
+    """--insecure-cookie exists for local http testing; it must stay usable."""
+    client = tc(create_app(sessions=manager, allowed_hosts=HOSTS, secure_cookie=False))
+    r = client.post("/api/session", headers={"X-Forwarded-Proto": "http"}, follow_redirects=False)
+    assert r.status_code == 200

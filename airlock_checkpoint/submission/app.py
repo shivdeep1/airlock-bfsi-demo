@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -80,6 +80,11 @@ def create_app(
 
     @app.middleware("http")
     async def guard(request: Request, call_next: RequestResponseEndpoint) -> Response:
+        # The session cookie is Secure, so a browser silently drops it over plain
+        # http and every later call 401s. Cloudflare should redirect at the edge,
+        # but the demo must not depend on a dashboard toggle being right.
+        if public and secure_cookie and request.headers.get("x-forwarded-proto") == "http":
+            return RedirectResponse(str(request.url.replace(scheme="https")), status_code=308)
         origin = request.headers.get("origin")
         if origin and origin != f"{request.url.scheme}://{request.headers.get('host')}":
             return JSONResponse({"detail": "Cross-origin requests are disabled"}, status_code=403)
