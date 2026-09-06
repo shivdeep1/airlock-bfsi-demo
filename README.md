@@ -1,6 +1,6 @@
 # Airlock: task access for banking AI
 
-A synthetic, local prototype submitted for the BITSoM Builders Pitch Fest 2026 BFSI track.
+A synthetic, local prototype prepared for the BITSoM Builders Pitch Fest 2026 BFSI track.
 
 An analyst may access two borrowers. An agent assigned borrower A should not inherit access to borrower B. Airlock checks the trusted assignment at execution and records the decision and actual backend result.
 

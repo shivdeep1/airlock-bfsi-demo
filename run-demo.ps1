@@ -5,7 +5,7 @@ try {
         & '.\.venv\Scripts\python.exe' -m airlock_checkpoint.submission @args
     } else {
         if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-            throw 'uv is required for first-time setup. See submission/START-HERE.md.'
+            throw 'uv is required for first-time setup. See README.md.'
         }
         & uv sync --frozen --extra dev
         if ($LASTEXITCODE -ne 0) { throw 'Dependency setup failed.' }
